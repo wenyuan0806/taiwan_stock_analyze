@@ -1,17 +1,20 @@
 import os
 import json
 import requests
+import yfinance as yfin
 
 from tqdm import tqdm
 from re import findall
 from time import sleep
 from curses import wrapper
 from bs4 import BeautifulSoup
-from pandas_datareader import data
+from pandas_datareader import data as pdr
 from fake_useragent import UserAgent
 from requests_html import HTMLSession
 from datetime import datetime, date, timedelta
 from pandas import read_html, concat, DataFrame, set_option
+
+yfin.pdr_override() # Fix for matching the new version of pandas_datareader. 2023/12/30 Wen-Yuan
 
 set_option('display.unicode.ambiguous_as_wide', True)
 set_option('display.unicode.east_asian_width', True)
@@ -57,6 +60,7 @@ def getStockList():
     df.loc[df['類型'].str.contains('CBC'), '類型'] = '受益證券-不動產投資信託'
     df.loc[df['類型'].str.contains('DA'), '類型'] = '受益證券-資產基礎證券'
     df.loc[df['類型'].str.contains('EP'), '類型'] = '特別股'
+    df = df.fillna('Null') # fill 'Null' in empty field
     df = df.set_index('股票代號')
 
     df = df[(df.類型!='上市認購(售)權證')&(df.類型!='上櫃認購(售)權證')] # Remove the rows by 類型=('上市認購(售)權證' or '上櫃認購(售)權證')
@@ -84,14 +88,14 @@ def getAllStockHistories(markets, types):
     result_df = df[(df['市場別'].isin(markets))&(df['類型'].isin(types))]
 
     pbar = tqdm(total=len(result_df), desc='[crawler.getAllStockHistories]')
+    # pbar = tqdm(range(len(result_df)), desc='[crawler.getAllStockHistories]')
     for sid, row in result_df.iterrows():
         try:
             if row['市場別'] == '上市':
                 market = '.TW'
             elif row['市場別'] == '上櫃':
                 market = '.TWO'
-            history_df = data.get_data_yahoo(sid+market, '2000-01-01', date.today().strftime('%Y-%m-%d'))
-            
+            history_df = pdr.get_data_yahoo(sid+market, '2000-01-01', date.today().strftime('%Y-%m-%d'), progress=False)
             if row['類型'] == '股票':
                 base_path = os.path.join(os.path.abspath(os.getcwd()), 'output', '歷史股價', row['市場別'], row['類型'], row['產業別'])
             else:
@@ -102,12 +106,13 @@ def getAllStockHistories(markets, types):
             file_path = os.path.join(base_path, filename)
             history_df.to_csv(file_path)
         except Exception as e:
+            print(e)
             pass
         sleep(0.1)
         pbar.update(1)
     pbar.close()
 
-    print('[crawler.getAllStockHistories] 個股歷史紀錄儲存至 <./output/歷史紀錄/>')
+    print('[crawler.getAllStockHistories] 個股歷史紀錄儲存至 <./output/歷史股價/>')
     print('[crawler.getAllStockHistories] 完成\n')
 
 """Get stock real time price by given sid"""
